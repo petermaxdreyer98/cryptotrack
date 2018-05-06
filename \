@@ -1,0 +1,42 @@
+#include <stdio.h>
+#include <curl/curl.h>
+#include <stdlib.h>
+#include <string.h>
+
+struct ResponseData {
+				char* htmlData;
+};
+
+float getCurrencyPrice(char* ticker);
+size_t handleRemoteResponse(char *ptr, size_t size, size_t nmemb, void* userdata);
+
+int main(int argc, char** argv){
+				float ethPrice = getCurrencyPrice("ETH");
+				return 0;
+}
+
+float getCurrencyPrice(char* ticker){
+				CURL* curl;
+				CURLcode res;
+
+				curl = curl_easy_init();
+				if(!curl){
+								printf("Curl could not be initialized!\n");
+								return 1;
+				}
+				struct ResponseData* responseData;
+				curl_easy_setopt(curl, CURLOPT_URL, "https://min-api.cryptocompare.com/data/price?fsym=ETH&tsyms=USD");
+				curl_easy_setopt(curl, CURLOPT_WRITEDATA, responseData);
+				curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, handleRemoteResponse);
+				res = curl_easy_perform(curl);
+				printf("%s", responseData);
+}
+
+
+size_t handleRemoteResponse(char *ptr, size_t size, size_t nmemb, void* userdata){
+				struct ResponseData* thisResponse = (struct ResponseData*)userdata;
+				userdata = malloc(size*nmemb);
+				*(char*)userdata = 'Z';
+				memcpy(userdata, ptr, 5);
+				return size*nmemb;
+}
