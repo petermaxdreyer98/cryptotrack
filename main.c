@@ -13,6 +13,7 @@ struct ResponseData {
 
 float getCurrencyPrice(char* tickers[], short tickerCount);
 size_t handleRemoteResponse(char *ptr, size_t size, size_t nmemb, void* userdata);
+char* getJSONLevel(char* jsonString, char* key);
 
 int main(int argc, char** argv){
 				char* tickers[] = {"ETH", "NANO", "LTC", "BTC"};
@@ -42,22 +43,27 @@ float getCurrencyPrice(char* tickers[], short tickerCount){
 								char* currencyList = (char*)malloc(stringLen + tickerCount);
 								int listPosition = 0;
 								for(int c=0;c!=tickerCount;c++){
-												printf("%d\n", strlen(tickers[c]));
 												memcpy(currencyList + listPosition, tickers[c], strlen(tickers[c]));
 												currencyList[strlen(tickers[c])+listPosition] = ',';
 												listPosition += strlen(tickers[c])+1;
 								}
 								currencyList[stringLen + tickerCount] = 0;
-								printf("%s", currencyList);
 								// Now generate the request URL for libcurl.
-								int requestURLLength = strlen(CRYPTOCOMPARE_MULTI_PRICE) + strlen('?fsyms=');
-								char* requestURL;
-								curl_easy_setopt(curl, CURLOPT_URL, "https://min-api.cryptocompare.com/data/pricemulti?fsyms=ETH,NANO&tsyms=USD");
+								int requestURLLength = strlen(CRYPTOCOMPARE_MULTI_PRICE) + strlen("?fsyms=") + strlen(currencyList) + strlen("&tsyms=USD\0");
+								char* requestURL = (char*)malloc(sizeof(char) * requestURLLength);
+								strcpy(requestURL, CRYPTOCOMPARE_MULTI_PRICE);
+								strcat(requestURL, "?fsyms=");
+								strcat(requestURL, currencyList);
+								strcat(requestURL, "&tsyms=USD\0");
+								curl_easy_setopt(curl, CURLOPT_URL, requestURL);
 				}
 				curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseData);
 				curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, handleRemoteResponse);
 				res = curl_easy_perform(curl);
-				printf("%s", responseData.htmlData);
+				// We now have the response, parse it.
+				char* nanoStart = getJSONLevel(responseData.htmlData, "NANO");
+				char* nanoUSD = getJSONLevel(nanoStart, "USD");
+				printf("%s\n", nanoUSD); 
 }
 
 
@@ -67,4 +73,18 @@ size_t handleRemoteResponse(char *ptr, size_t size, size_t nmemb, void* userdata
 				memcpy(thisResponse->htmlData, ptr, size*nmemb);
 				thisResponse->htmlData[size*nmemb] = 0;
 				return size*nmemb;
+}
+
+// The following is a barely function pseudo-tokenizer monstrosity that is here
+// for the sole purpose of avoiding linking a full JSON parsing library.
+// It works just well enough to get the job done.  I don't expect any awards.
+char* getJSONLevel(char* jsonString, char* key){
+				// Scan through the provided JSON string until the proper key is found.
+				char* keyLocation = strstr(jsonString, key);
+				// We now have the key location, locate the end of it and return this
+				// value.
+				char* needle = (char*)malloc(sizeof(char)*2);
+				needle = ":\0";
+				char* returnVal = strstr(keyLocation, needle);
+				return returnVal;
 }
