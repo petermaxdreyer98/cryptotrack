@@ -6,7 +6,6 @@
 #define CRYPTOCOMPARE_SINGLE_PRICE "https://min-api.cryptocompare.com/data/price"
 #define CRYPTOCOMPARE_MULTI_PRICE "https://min-api.cryptocompare.com/data/pricemulti"
 
-
 struct ResponseData {
 				char* htmlData;
 };
@@ -14,10 +13,12 @@ struct ResponseData {
 float getCurrencyPrice(char* tickers[], short tickerCount);
 size_t handleRemoteResponse(char *ptr, size_t size, size_t nmemb, void* userdata);
 char* getJSONLevel(char* jsonString, char* key);
+char* cleanupJSONTier(char* tier);
+char* retrieveCurrentPrice(char* data, char* ticker);
 
 int main(int argc, char** argv){
-				char* tickers[] = {"ETH", "NANO", "LTC", "BTC"};
-				float ethPrice = getCurrencyPrice(tickers, 4);
+				char* tickers[] = {"ETH", "NANO", "LTC", "BTC", "XMR", "XRB", "ADA"};
+				float ethPrice = getCurrencyPrice(tickers, 7);
 				return 0;
 }
 
@@ -61,9 +62,11 @@ float getCurrencyPrice(char* tickers[], short tickerCount){
 				curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, handleRemoteResponse);
 				res = curl_easy_perform(curl);
 				// We now have the response, parse it.
-				char* nanoStart = getJSONLevel(responseData.htmlData, "NANO");
-				char* nanoUSD = getJSONLevel(nanoStart, "USD");
-				printf("%s\n", nanoUSD); 
+				char* currentPrice;
+				for(int c=0;c!=tickerCount;c++){
+								currentPrice = retrieveCurrentPrice(responseData.htmlData, tickers[c]);
+								printf("%s: %s\n", tickers[c], currentPrice);
+				}
 }
 
 
@@ -87,4 +90,23 @@ char* getJSONLevel(char* jsonString, char* key){
 				needle = ":\0";
 				char* returnVal = strstr(keyLocation, needle);
 				return returnVal;
+}
+
+// Truncate at the first occurence of '}'
+char* cleanupJSONTier(char* tier){
+				tier += 1;
+				char* needle = (char*)malloc(sizeof(char)*1);
+				needle = "}";
+				char* breakPos = strstr(tier, needle);
+				char* returnString = (char*)malloc(sizeof(char)*(breakPos-tier));
+				memcpy(returnString, tier, (int)(breakPos-tier));
+				returnString[breakPos-tier] = 0;
+				return returnString;
+};
+
+char* retrieveCurrentPrice(char* data, char* ticker){
+				char* thisStart = getJSONLevel(data, ticker);				
+				char* usd = getJSONLevel(thisStart, "USD");
+				usd = cleanupJSONTier(usd);
+				return usd;
 }
