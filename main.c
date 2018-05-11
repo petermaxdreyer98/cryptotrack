@@ -6,6 +6,12 @@
 
 #define CRYPTOCOMPARE_SINGLE_PRICE "https://min-api.cryptocompare.com/data/price"
 #define CRYPTOCOMPARE_MULTI_PRICE "https://min-api.cryptocompare.com/data/pricemulti"
+#define CRYPTOCOMPARE_PRICE_HISTORICAL "https://min-api.cryptocompare.com/data/histoday?fsym=%s&tsym=%s&limit=%d&toTs=%d"
+// %s in the following define is a Coinbase-style currency pairing (i.e. "ETH-USD")
+// The date is specified as YYYY-MM-DD UTC
+#define COINBASE_PRICE_ENDPOINT "https://api.coinbase.com/v2/prices/%s/spot?date=%s"
+// %s in the following define is a Binance-style currency pairing (i.e. ETHBTC)
+#define BINANCE_PRICE_ENDPOINT "https://api.binance.com/v1/ticker/price/symbol=%s"
 
 #define COLOR_RED "\033[31m"
 #define COLOR_GREEN "\033[32m"
@@ -21,20 +27,31 @@ struct CLIArgs{
 				char** currencies;
 };
 
-float getCurrencyPrice(char* tickers[], short tickerCount);
+float getCurrencyPrices(char* tickers[], short tickerCount);
 size_t handleRemoteResponse(char *ptr, size_t size, size_t nmemb, void* userdata);
 char* getJSONLevel(char* jsonString, char* key);
 char* cleanupJSONTier(char* tier);
 char* retrieveCurrentPrice(char* data, char* ticker);
 struct CLIArgs* doArgs(int argc, char** argv);
+float retrieveHistoricalPrice(CURL* curl, char* ticker, time_t date);
+short countAllStringVars(char* string);
+char* cleanupJSONEntry(char* tier);
 
 int main(int argc, char** argv){
 				struct CLIArgs* cliArgs = doArgs(argc, argv);
-				float ethPrice = getCurrencyPrice(cliArgs->currencies, cliArgs->currencyCount);
+				if(cliArgs->currencyCount == 0){
+								cliArgs->currencies = (char**)malloc(sizeof(char*)*4);
+								cliArgs->currencies[0] = "BTC";
+								cliArgs->currencies[1] = "LTC";
+								cliArgs->currencies[2] = "ETH";
+								cliArgs->currencies[3] = "XMR";
+								cliArgs->currencyCount = 4;
+				}
+				getCurrencyPrices(cliArgs->currencies, cliArgs->currencyCount);
 				return 0;
 }
 
-float getCurrencyPrice(char* tickers[], short tickerCount){
+float getCurrencyPrices(char* tickers[], short tickerCount){
 				CURL* curl;
 				CURLcode res;
 
@@ -44,9 +61,10 @@ float getCurrencyPrice(char* tickers[], short tickerCount){
 								return 1;
 				}
 				struct ResponseData responseData;
-				if(tickerCount == 1){
-								curl_easy_setopt(curl, CURLOPT_URL, "https://min-api.cryptocompare.com/data/price?fsym=ETH&tsyms=USD");
-				}else{
+				// TODO: Add this if statement back in.
+		    // if(tickerCount == 1){
+								// curl_easy_setopt(curl, CURLOPT_URL, );
+				// }else{
 								// Calculate the total length of the ticker string.
 								int stringLen = 0;
 								for(int c=0;c!=tickerCount;c++){
@@ -61,12 +79,12 @@ float getCurrencyPrice(char* tickers[], short tickerCount){
 												listPosition += strlen(tickers[c])+1;
 								}
 								currencyList[stringLen + tickerCount] = 0;
-								// Now generate the request URL for libcurl.
+								// Now generate the request URL to find the current price for libcurl.
 								int requestURLLength = strlen(CRYPTOCOMPARE_MULTI_PRICE) + strlen("?fsyms=") + strlen(currencyList) + strlen("&tsyms=USD\0");
 								char* requestURL = (char*)malloc(sizeof(char) * requestURLLength);
 								sprintf(requestURL, "%s?fsyms=%s&tsyms=USD\0", CRYPTOCOMPARE_MULTI_PRICE, currencyList);
 								curl_easy_setopt(curl, CURLOPT_URL, requestURL);
-				}
+				// }
 				curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseData);
 				curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, handleRemoteResponse);
 				res = curl_easy_perform(curl);
@@ -76,8 +94,31 @@ float getCurrencyPrice(char* tickers[], short tickerCount){
 								currentPrice = retrieveCurrentPrice(responseData.htmlData, tickers[c]);
 								printf("%s: %s\n", tickers[c], currentPrice);
 				}
+				// Now attempt to get the prices from an hour ago.
+				// It appears that cryptocompare does not allow batch historical data
+				// retrieval so this is inefficient as it gets.
+				for(int c=0;c!=tickerCount;c++){
+								// Calculate the total length of the request string.
+								int thisRequestStringLength = strlen(CRYPTOCOMPARE_PRICE_HISTORICAL); 
+								// Replace all instances of %s and %d as they will not be
+								// factored in to the final output.
+								char* currentStringLocation = CRYPTOCOMPARE_PRICE_HISTORICAL;
+								char* stringLocation = currentStringLocation;
+								char* decimalLocation = currentStringLocation;
+								thisRequestStringLength = strlen(CRYPTOCOMPARE_PRICE_HISTORICAL) + countAllStringVars(CRYPTOCOMPARE_PRICE_HISTORICAL)*sizeof(char)*2;
+								thisRequestStringLength += strlen(tickers[c]) + strlen("USD"); + 2;
+								char* historicalURL = (char*)malloc(sizeof(char)*thisRequestStringLength);
+								// Calculate the UNIX timestamp from an hour ago to retrieve the price.
+								time_t currentTime = time(NULL);
+								// Calculate the UNIX timestamp from an hour ago to retrieve the price.
+								// TODO: Optimize this.
+								float oneHourAvg = retrieveHistoricalPrice(curl, tickers[c], currentTime - (60*60));
+								float twentyFourHourAvg = retrieveHistoricalPrice(curl, tickers[c], currentTime - (60*60*24));
+								float sevenDayAvg = retrieveHistoricalPrice(curl, tickers[c], currentTime  -(60*60*24*7));
+								// float twentyFourHourVal = retrieveHistoricalPrice(curl, tickers[c], oneHourAgo);
+								printf("%f\n", sevenDayAvg);
+				}
 }
-
 
 size_t handleRemoteResponse(char *ptr, size_t size, size_t nmemb, void* userdata){
 				struct ResponseData* thisResponse = (struct ResponseData*)userdata;
@@ -104,14 +145,22 @@ char* getJSONLevel(char* jsonString, char* key){
 // Truncate at the first occurence of '}'
 char* cleanupJSONTier(char* tier){
 				tier += 1;
-				char* needle = (char*)malloc(sizeof(char)*1);
-				needle = "}";
-				char* breakPos = strstr(tier, needle);
+				char* breakPos = strstr(tier, "}");
 				char* returnString = (char*)malloc(sizeof(char)*(breakPos-tier));
 				memcpy(returnString, tier, (int)(breakPos-tier));
 				returnString[breakPos-tier] = 0;
 				return returnString;
 };
+
+// TODO: Optimize this function.
+char* cleanupJSONEntry(char* tier){
+				char* breakPos = strstr(tier, ",");
+				char* returnString = (char*)malloc(sizeof(char)*(breakPos-tier)+1);
+				memcpy(returnString,tier,breakPos-tier);
+				returnString[(breakPos-tier)] = 0;
+				returnString = &returnString[1];
+				return returnString;
+}
 
 char* retrieveCurrentPrice(char* data, char* ticker){
 				char* thisStart = getJSONLevel(data, ticker);				
@@ -124,7 +173,7 @@ struct CLIArgs* doArgs(int argc, char** argv){
 				// Parse the flags given to the software on the commandline.
 				struct CLIArgs* returnArgs = (struct CLIArgs*)malloc(sizeof(struct CLIArgs));
 				if(argc == 1){ // No arguments were specified.
-								return NULL;
+								return returnArgs;
 				}
 				// Arguments have been specified.  Process them.
 				for(int c=1;c!=argc;c++){
@@ -188,4 +237,60 @@ struct CLIArgs* doArgs(int argc, char** argv){
 								}
 				}
 				return returnArgs;
+}
+
+float retrieveHistoricalPrice(CURL* curl, char* ticker, time_t date){
+		// Calculate the total length of the request string.
+		int thisRequestStringLength = strlen(CRYPTOCOMPARE_PRICE_HISTORICAL); 
+		// Replace all instances of %s and %d as they will not be
+		// factored in to the final output.
+		char* currentStringLocation = CRYPTOCOMPARE_PRICE_HISTORICAL;
+		char* stringLocation = currentStringLocation;
+		char* decimalLocation = currentStringLocation;
+		thisRequestStringLength = strlen(CRYPTOCOMPARE_PRICE_HISTORICAL) + countAllStringVars(CRYPTOCOMPARE_PRICE_HISTORICAL)*sizeof(char)*2;
+		thisRequestStringLength += strlen(ticker) + strlen("USD"); + 2;
+		char* historicalURL = (char*)malloc(sizeof(char)*thisRequestStringLength);
+		// Make a request to the remote server for the spot price for the given
+		// currencies at the given date.
+		sprintf(historicalURL, CRYPTOCOMPARE_PRICE_HISTORICAL, ticker, "USD", 1, date);
+		historicalURL[thisRequestStringLength] = '\0';
+		// Calculate the UNIX timestamp from an hour ago to retrieve the price.
+		struct ResponseData* thisResponse = (struct ResponseData*)malloc(sizeof(struct ResponseData));
+		curl_easy_setopt(curl, CURLOPT_WRITEDATA, thisResponse);
+		curl_easy_setopt(curl, CURLOPT_URL, historicalURL);	
+		//puts(historicalURL);
+		curl_easy_perform(curl);
+		// We've retrieve the JSON response from the server.  Now pull
+		// out the proper data from it.
+		// TODO: Determine a better method.
+		// Retrieve the high and the low values and calculate the
+		// average.
+		char* lowVal = getJSONLevel(thisResponse->htmlData, "low");
+		lowVal = cleanupJSONEntry(lowVal);
+		char* highVal = getJSONLevel(thisResponse->htmlData, "high");
+		highVal = cleanupJSONEntry(highVal);
+		// Convert both of these char* arrays into floats and average
+		// Assume that only the first two decimals are valid.
+		// Assume that only the first two decimals are valid.
+		// TODO: Support at least four decimals.
+		float newLowVal = atof(lowVal);
+		float newHighVal = atof(highVal);
+	  float averageVal = (newHighVal + newLowVal) / 2;
+		return averageVal;
+}
+
+short countAllStringVars(char* string){
+				short numFoundVariables = 0;
+				// Loop through all characters in the string.
+				for(short c=0;c!=strlen(string);c++){
+							if(string[c] == '%'){ // Potential match.
+											switch(string[c+1]){
+												case 'd':
+												case 's':
+																numFoundVariables++;
+																break;
+											}	
+							}
+				}
+				return numFoundVariables;
 }
