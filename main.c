@@ -104,7 +104,7 @@ float getCurrencyPrices(char* tickers[], short tickerCount){
 								time_t currentTime = time(NULL);
 								// Calculate the UNIX timestamp from an hour ago to retrieve the price.
 								// TODO: Optimize this.
-								float oneHourAvg = retrieveHistoricalPrice(curl, tickers[c], currentTime - (60*60));
+								float oneHour = retrieveHistoricalPrice(curl, tickers[c], currentTime - (60*60));
 								float twentyFourHourAvg = retrieveHistoricalPrice(curl, tickers[c], currentTime - (60*60*24));
 								float sevenDayAvg = retrieveHistoricalPrice(curl, tickers[c], currentTime  -(60*60*24*7));
 								// float twentyFourHourVal = retrieveHistoricalPrice(curl, tickers[c], oneHourAgo);
@@ -112,19 +112,19 @@ float getCurrencyPrices(char* tickers[], short tickerCount){
 								// TODO: Determine why values for ZCash and ZClassic crash the software.
 								float currentPrice = atof(retrieveCurrentPrice(responseData.htmlData, tickers[c]));
 								// Now calculate the percentage change for each time period.
-								printf("%s: %f ", tickers[c], currentPrice, (1-(oneHourAvg/currentPrice))*100, (1-(twentyFourHourAvg/currentPrice))*100, (1-(sevenDayAvg/currentPrice))*100);
-								float oneHourPercentage = (1-(oneHourAvg/currentPrice))*100;
-								float twentyFourHourPercentage = (1-(twentyFourHourAvg/currentPrice))*100;
-								float sevenDayPercentage = (1-(sevenDayAvg/currentPrice))*100;
-								if(oneHourPercentage < 0){fputs(COLOR_RED, stdout);}else{
+								printf("%0.4s: %-15.4f", tickers[c], currentPrice);
+								oneHour = (1-(oneHour/currentPrice))*100;
+								float twentyFourHour = (1-(twentyFourHourAvg/currentPrice))*100;
+								float sevenDay = (1-(sevenDayAvg/currentPrice))*100;
+								if(oneHour < 0){fputs(COLOR_RED, stdout);}else{
 												fputs(COLOR_GREEN, stdout);}
-								printf("%f%s ", oneHourPercentage, COLOR_RESET);
-								if(twentyFourHourPercentage < 0){fputs(COLOR_RED, stdout);}else{
+								printf("%-10.2f%s", oneHour, COLOR_RESET);
+								if(twentyFourHour < 0){fputs(COLOR_RED, stdout);}else{
 												fputs(COLOR_GREEN, stdout);}
-								printf("%f%s ", twentyFourHourPercentage, COLOR_RESET);
-								if(sevenDayAvg < 0){fputs(COLOR_RED, stdout);}else{
+								printf("%-10.2f%s", twentyFourHour, COLOR_RESET);
+								if(sevenDay < 0){fputs(COLOR_RED, stdout);}else{
 												fputs(COLOR_GREEN, stdout);}
-								printf("%f%s\n", sevenDayPercentage, COLOR_RESET);
+								printf("%-10.2f%s\n", sevenDay, COLOR_RESET);
 				}
 }
 
