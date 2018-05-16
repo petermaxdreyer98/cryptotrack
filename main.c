@@ -40,6 +40,7 @@ char* cleanupJSONEntry(char* tier);
 int main(int argc, char** argv){
 				struct CLIArgs* cliArgs = doArgs(argc, argv);
 				if(cliArgs->currencyCount == 0){
+								// Insert some default currencies to be processed.
 								cliArgs->currencies = (char**)malloc(sizeof(char*)*4);
 								cliArgs->currencies[0] = "BTC";
 								cliArgs->currencies[1] = "LTC";
@@ -61,30 +62,24 @@ float getCurrencyPrices(char* tickers[], short tickerCount){
 								return 1;
 				}
 				struct ResponseData responseData;
-				// TODO: Add this if statement back in.
-		    // if(tickerCount == 1){
-								// curl_easy_setopt(curl, CURLOPT_URL, );
-				// }else{
-								// Calculate the total length of the ticker string.
-								int stringLen = 0;
-								for(int c=0;c!=tickerCount;c++){
-												char* currentTicker = tickers[c];
-												stringLen += strlen(currentTicker);
-								}
-								char* currencyList = (char*)malloc(stringLen + tickerCount);
-								int listPosition = 0;
-								for(int c=0;c!=tickerCount;c++){
-												memcpy(currencyList + listPosition, tickers[c], strlen(tickers[c]));
-												currencyList[strlen(tickers[c])+listPosition] = ',';
-												listPosition += strlen(tickers[c])+1;
-								}
-								currencyList[stringLen + tickerCount] = 0;
-								// Now generate the request URL to find the current price for libcurl.
-								int requestURLLength = strlen(CRYPTOCOMPARE_MULTI_PRICE) + strlen("?fsyms=") + strlen(currencyList) + strlen("&tsyms=USD\0");
-								char* requestURL = (char*)malloc(sizeof(char) * requestURLLength);
-								sprintf(requestURL, "%s?fsyms=%s&tsyms=USD\0", CRYPTOCOMPARE_MULTI_PRICE, currencyList);
-								curl_easy_setopt(curl, CURLOPT_URL, requestURL);
-				// }
+				int stringLen = 0;
+				for(int c=0;c!=tickerCount;c++){
+								char* currentTicker = tickers[c];
+								stringLen += strlen(currentTicker);
+				}
+				char* currencyList = (char*)malloc(stringLen + tickerCount);
+				int listPosition = 0;
+				for(int c=0;c!=tickerCount;c++){
+								memcpy(currencyList + listPosition, tickers[c], strlen(tickers[c]));
+								currencyList[strlen(tickers[c])+listPosition] = ',';
+								listPosition += strlen(tickers[c])+1;
+				}
+				currencyList[stringLen + tickerCount] = 0;
+				// Now generate the request URL to find the current price for libcurl.
+				int requestURLLength = strlen(CRYPTOCOMPARE_MULTI_PRICE) + strlen("?fsyms=") + strlen(currencyList) + strlen("&tsyms=USD\0");
+				char* requestURL = (char*)malloc(sizeof(char) * requestURLLength);
+				sprintf(requestURL, "%s?fsyms=%s&tsyms=USD\0", CRYPTOCOMPARE_MULTI_PRICE, currencyList);
+				curl_easy_setopt(curl, CURLOPT_URL, requestURL);
 				curl_easy_setopt(curl, CURLOPT_WRITEDATA, &responseData);
 				curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, handleRemoteResponse);
 				res = curl_easy_perform(curl);
@@ -92,12 +87,9 @@ float getCurrencyPrices(char* tickers[], short tickerCount){
 				char* currentPrice;
 				for(int c=0;c!=tickerCount;c++){
 								currentPrice = retrieveCurrentPrice(responseData.htmlData, tickers[c]);
-								printf("%s: %s\n", tickers[c], currentPrice);
-				}
-				// Now attempt to get the prices from an hour ago.
-				// It appears that cryptocompare does not allow batch historical data
-				// retrieval so this is inefficient as it gets.
-				for(int c=0;c!=tickerCount;c++){
+								// Now attempt to get the prices from an hour ago.
+								// It appears that cryptocompare does not allow batch historical data
+								// retrieval so this is inefficient as it gets.
 								// Calculate the total length of the request string.
 								int thisRequestStringLength = strlen(CRYPTOCOMPARE_PRICE_HISTORICAL); 
 								// Replace all instances of %s and %d as they will not be
@@ -116,7 +108,23 @@ float getCurrencyPrices(char* tickers[], short tickerCount){
 								float twentyFourHourAvg = retrieveHistoricalPrice(curl, tickers[c], currentTime - (60*60*24));
 								float sevenDayAvg = retrieveHistoricalPrice(curl, tickers[c], currentTime  -(60*60*24*7));
 								// float twentyFourHourVal = retrieveHistoricalPrice(curl, tickers[c], oneHourAgo);
-								printf("%f\n", sevenDayAvg);
+								// Calculate the percentage difference.
+								// TODO: Determine why values for ZCash and ZClassic crash the software.
+								float currentPrice = atof(retrieveCurrentPrice(responseData.htmlData, tickers[c]));
+								// Now calculate the percentage change for each time period.
+								printf("%s: %f ", tickers[c], currentPrice, (1-(oneHourAvg/currentPrice))*100, (1-(twentyFourHourAvg/currentPrice))*100, (1-(sevenDayAvg/currentPrice))*100);
+								float oneHourPercentage = (1-(oneHourAvg/currentPrice))*100;
+								float twentyFourHourPercentage = (1-(twentyFourHourAvg/currentPrice))*100;
+								float sevenDayPercentage = (1-(sevenDayAvg/currentPrice))*100;
+								if(oneHourPercentage < 0){fputs(COLOR_RED, stdout);}else{
+												fputs(COLOR_GREEN, stdout);}
+								printf("%f%s ", oneHourPercentage, COLOR_RESET);
+								if(twentyFourHourPercentage < 0){fputs(COLOR_RED, stdout);}else{
+												fputs(COLOR_GREEN, stdout);}
+								printf("%f%s ", twentyFourHourPercentage, COLOR_RESET);
+								if(sevenDayAvg < 0){fputs(COLOR_RED, stdout);}else{
+												fputs(COLOR_GREEN, stdout);}
+								printf("%f%s\n", sevenDayPercentage, COLOR_RESET);
 				}
 }
 
@@ -239,58 +247,51 @@ struct CLIArgs* doArgs(int argc, char** argv){
 				return returnArgs;
 }
 
+// TODO: Optimize this
 float retrieveHistoricalPrice(CURL* curl, char* ticker, time_t date){
-		// Calculate the total length of the request string.
-		int thisRequestStringLength = strlen(CRYPTOCOMPARE_PRICE_HISTORICAL); 
-		// Replace all instances of %s and %d as they will not be
-		// factored in to the final output.
-		char* currentStringLocation = CRYPTOCOMPARE_PRICE_HISTORICAL;
-		char* stringLocation = currentStringLocation;
-		char* decimalLocation = currentStringLocation;
-		thisRequestStringLength = strlen(CRYPTOCOMPARE_PRICE_HISTORICAL) + countAllStringVars(CRYPTOCOMPARE_PRICE_HISTORICAL)*sizeof(char)*2;
-		thisRequestStringLength += strlen(ticker) + strlen("USD"); + 2;
-		char* historicalURL = (char*)malloc(sizeof(char)*thisRequestStringLength);
-		// Make a request to the remote server for the spot price for the given
-		// currencies at the given date.
-		sprintf(historicalURL, CRYPTOCOMPARE_PRICE_HISTORICAL, ticker, "USD", 1, date);
-		historicalURL[thisRequestStringLength] = '\0';
-		// Calculate the UNIX timestamp from an hour ago to retrieve the price.
-		struct ResponseData* thisResponse = (struct ResponseData*)malloc(sizeof(struct ResponseData));
-		curl_easy_setopt(curl, CURLOPT_WRITEDATA, thisResponse);
-		curl_easy_setopt(curl, CURLOPT_URL, historicalURL);	
-		//puts(historicalURL);
-		curl_easy_perform(curl);
-		// We've retrieve the JSON response from the server.  Now pull
-		// out the proper data from it.
-		// TODO: Determine a better method.
-		// Retrieve the high and the low values and calculate the
-		// average.
-		char* lowVal = getJSONLevel(thisResponse->htmlData, "low");
-		lowVal = cleanupJSONEntry(lowVal);
-		char* highVal = getJSONLevel(thisResponse->htmlData, "high");
-		highVal = cleanupJSONEntry(highVal);
-		// Convert both of these char* arrays into floats and average
-		// Assume that only the first two decimals are valid.
-		// Assume that only the first two decimals are valid.
-		// TODO: Support at least four decimals.
-		float newLowVal = atof(lowVal);
-		float newHighVal = atof(highVal);
-	  float averageVal = (newHighVal + newLowVal) / 2;
-		return averageVal;
+				// Calculate the total length of the request string.
+				int thisRequestStringLength = strlen(CRYPTOCOMPARE_PRICE_HISTORICAL); 
+				// Replace all instances of %s and %d as they will not be
+				// factored in to the final output.
+				char* currentStringLocation = CRYPTOCOMPARE_PRICE_HISTORICAL;
+				char* stringLocation = currentStringLocation;
+				char* decimalLocation = currentStringLocation;
+				thisRequestStringLength = strlen(CRYPTOCOMPARE_PRICE_HISTORICAL) + countAllStringVars(CRYPTOCOMPARE_PRICE_HISTORICAL)*sizeof(char)*2;
+				thisRequestStringLength += strlen(ticker) + strlen("USD"); + 2;
+				char* historicalURL = (char*)malloc(sizeof(char)*thisRequestStringLength);
+				// Make a request to the remote server for the spot price for the given
+				// currencies at the given date.
+				sprintf(historicalURL, CRYPTOCOMPARE_PRICE_HISTORICAL, ticker, "USD", 1, date);
+				historicalURL[thisRequestStringLength] = '\0';
+				// Calculate the UNIX timestamp from an hour ago to retrieve the price.
+				struct ResponseData* thisResponse = (struct ResponseData*)malloc(sizeof(struct ResponseData));
+				curl_easy_setopt(curl, CURLOPT_WRITEDATA, thisResponse);
+				curl_easy_setopt(curl, CURLOPT_URL, historicalURL);	
+				curl_easy_perform(curl);
+				// We've retrieve the JSON response from the server.  Now pull
+				// out the proper data from it.
+				// TODO: Determine a better method.
+				// Retrieve the high and the low values and calculate the
+				// average.
+				char* lowVal = getJSONLevel(thisResponse->htmlData, "close");
+				lowVal = cleanupJSONEntry(lowVal);
+				// Assume that only the first two decimals are valid.
+				// TODO: Support at least four decimals.
+				return atof(lowVal); 
 }
 
 short countAllStringVars(char* string){
 				short numFoundVariables = 0;
 				// Loop through all characters in the string.
 				for(short c=0;c!=strlen(string);c++){
-							if(string[c] == '%'){ // Potential match.
-											switch(string[c+1]){
-												case 'd':
-												case 's':
-																numFoundVariables++;
-																break;
-											}	
-							}
+								if(string[c] == '%'){ // Potential match.
+												switch(string[c+1]){
+																case 'd':
+																case 's':
+																				numFoundVariables++;
+																				break;
+												}	
+								}
 				}
 				return numFoundVariables;
 }
